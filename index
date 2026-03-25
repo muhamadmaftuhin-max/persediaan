@@ -1,0 +1,892 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { 
+  Lock, User, LogOut, Package, ShoppingCart, Users, FileText, 
+  Plus, Upload, Trash2, Search, Printer, FileDown, Image as ImageIcon, CheckCircle, AlertCircle
+} from 'lucide-react';
+
+// --- MOCK INITIAL DATA ---
+const initialUsers = [
+  { id: 1, nip: '198001012005011001', name: 'Admin Master', username: 'admin', password: 'password123', role: 'admin' }, // Changed password conceptually, but handled below
+  { id: 2, nip: '198612122012111001', name: 'Muhammad Maftuhin', username: 'operator1', password: '123', role: 'operator' },
+  { id: 3, nip: '198809062010121006', name: 'Muhammad Jaka', username: 'super1', password: '123', role: 'supervisor' }
+];
+
+const initialInventory = [
+  { id: 1, code: 'B-001', name: 'Kertas HVS A4 70gsm', unit: 'Rim', stock: 50, description: 'Kertas cetak standar' },
+  { id: 2, code: 'B-002', name: 'Tinta Printer Epson Black', unit: 'Botol', stock: 15, description: 'Tinta original' },
+  { id: 3, code: 'B-003', name: 'Pulpen Standard Hitam', unit: 'Pack', stock: 20, description: 'Isi 12 pcs/pack' },
+  { id: 4, code: 'B-004', name: 'Staples Kenko HD-10', unit: 'Pcs', stock: 30, description: 'Ukuran kecil' },
+];
+
+const initialUsage = [
+  {
+    id: 1,
+    date: '2026-03-20',
+    requesterName: 'Budi Santoso',
+    usageNumber: '0001/32741/PL.710/2026',
+    items: [
+      { code: 'B-001', name: 'Kertas HVS A4 70gsm', unit: 'Rim', quantity: 2, description: 'Untuk cetak kuesioner' }
+    ]
+  }
+];
+
+// --- MAIN COMPONENT ---
+export default function App() {
+  // State Management
+  const [users, setUsers] = useState(initialUsers);
+  const [inventory, setInventory] = useState(initialInventory);
+  const [usageHistory, setUsageHistory] = useState(initialUsage);
+  
+  const [currentUser, setCurrentUser] = useState(null);
+  const [currentView, setCurrentView] = useState('dashboard');
+  const [notification, setNotification] = useState(null);
+
+  // Script loaders for Export and Excel features
+  useEffect(() => {
+    const loadScript = (src) => {
+      if (!document.querySelector(`script[src="${src}"]`)) {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        document.body.appendChild(script);
+      }
+    };
+    // Load external libraries for extra functionality
+    loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+    loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    
+    // Auto-create admin if not exists (handling the prompt requirement exactly)
+    setUsers(prev => {
+        if(!prev.find(u => u.username === 'admin')) {
+            return [...prev, { id: 999, nip: '-', name: 'Administrator', username: 'admin', password: 'admin', role: 'admin' }];
+        }
+        // Force admin password to 'admin' for initial login as requested
+        return prev.map(u => u.username === 'admin' ? { ...u, password: 'admin' } : u);
+    });
+  }, []);
+
+  const showNotification = (message, type = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleLogin = (username, password) => {
+    const user = users.find(u => u.username === username && u.password === password);
+    if (user) {
+      setCurrentUser(user);
+      // Route based on role
+      if (user.role === 'admin') setCurrentView('dashboard');
+      else if (user.role === 'operator') setCurrentView('pemakaian');
+      else if (user.role === 'supervisor') setCurrentView('persediaan');
+      
+      showNotification(`Selamat datang, ${user.name}`);
+    } else {
+      showNotification('Username atau password salah!', 'error');
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setCurrentView('dashboard');
+  };
+
+  if (!currentUser) {
+    return <LoginScreen onLogin={handleLogin} notification={notification} />;
+  }
+
+  return (
+    <div className="flex h-screen bg-gray-50 font-sans">
+      {/* Sidebar - Hidden on Print */}
+      <div className="w-64 bg-slate-800 text-white flex flex-col print:hidden">
+        <div className="p-4 border-b border-slate-700 flex items-center gap-3">
+          <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center font-bold text-xl">T</div>
+          <div>
+            <h1 className="font-bold text-lg leading-tight">TROLI</h1>
+            <p className="text-xs text-slate-400">Logistik BPS Cirebon</p>
+          </div>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto py-4">
+          <nav className="space-y-1 px-2">
+            {(currentUser.role === 'admin') && (
+              <SidebarItem icon={<Lock size={18} />} label="Dashboard" active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} />
+            )}
+            
+            {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
+              <SidebarItem icon={<Package size={18} />} label="Input Persediaan" active={currentView === 'persediaan'} onClick={() => setCurrentView('persediaan')} />
+            )}
+            
+            {(currentUser.role === 'admin' || currentUser.role === 'operator') && (
+              <SidebarItem icon={<ShoppingCart size={18} />} label="Pemakaian Persediaan" active={currentView === 'pemakaian'} onClick={() => setCurrentView('pemakaian')} />
+            )}
+            
+            {(currentUser.role === 'admin') && (
+              <SidebarItem icon={<Users size={18} />} label="Manajemen Akses" active={currentView === 'akses'} onClick={() => setCurrentView('akses')} />
+            )}
+            
+            {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
+              <SidebarItem icon={<FileText size={18} />} label="Laporan" active={currentView === 'laporan'} onClick={() => setCurrentView('laporan')} />
+            )}
+          </nav>
+        </div>
+
+        <div className="p-4 border-t border-slate-700">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-8 h-8 bg-slate-600 rounded-full flex items-center justify-center">
+              <User size={16} />
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-sm font-medium truncate">{currentUser.name}</p>
+              <p className="text-xs text-slate-400 capitalize">{currentUser.role}</p>
+            </div>
+          </div>
+          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 py-2 rounded-md transition-colors text-sm">
+            <LogOut size={16} /> Keluar
+          </button>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-y-auto relative bg-gray-50">
+        {/* Global Notification */}
+        {notification && (
+          <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded shadow-lg flex items-center gap-2 text-white print:hidden ${notification.type === 'error' ? 'bg-red-500' : 'bg-green-500'}`}>
+            {notification.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle size={18} />}
+            <span>{notification.message}</span>
+          </div>
+        )}
+
+        <div className="p-8 print:p-0">
+          {currentView === 'dashboard' && <Dashboard user={currentUser} stats={{ users: users.length, inventory: inventory.length, usage: usageHistory.length }} />}
+          {currentView === 'persediaan' && <InventoryView inventory={inventory} setInventory={setInventory} notify={showNotification} />}
+          {currentView === 'pemakaian' && <UsageView inventory={inventory} setInventory={setInventory} usageHistory={usageHistory} setUsageHistory={setUsageHistory} notify={showNotification} />}
+          {currentView === 'akses' && <UsersView users={users} setUsers={setUsers} notify={showNotification} />}
+          {currentView === 'laporan' && <ReportView usageHistory={usageHistory} notify={showNotification} />}
+        </div>
+      </div>
+      
+      {/* Print Styles injected */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          body { background: white; }
+          .print\\:hidden { display: none !important; }
+          .print\\:block { display: block !important; }
+          .print\\:p-0 { padding: 0 !important; }
+          .print\\:m-0 { margin: 0 !important; }
+          .print\\:shadow-none { box-shadow: none !important; }
+          .print\\:border-none { border: none !important; }
+          @page { size: A4 portrait; margin: 15mm; }
+        }
+      `}} />
+    </div>
+  );
+}
+
+// --- SUB COMPONENTS ---
+
+const SidebarItem = ({ icon, label, active, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-sm ${
+      active ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+    }`}
+  >
+    {icon} {label}
+  </button>
+);
+
+const LoginScreen = ({ onLogin, notification }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
+  return (
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+      {notification && (
+          <div className={`absolute top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded shadow-md flex items-center gap-2 text-white ${notification.type === 'error' ? 'bg-red-500' : 'bg-green-500'}`}>
+            {notification.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle size={18} />}
+            <span>{notification.message}</span>
+          </div>
+      )}
+      <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-md">
+            <Package size={32} className="text-white" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-800">TROLI</h1>
+          <p className="text-gray-500 text-sm">Tracking Resource & Logistik Inventori</p>
+        </div>
+        
+        <form onSubmit={(e) => { e.preventDefault(); onLogin(username, password); }} className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+            <input 
+              type="text" 
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              value={username} 
+              onChange={e => setUsername(e.target.value)}
+              required 
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <input 
+              type="password" 
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              value={password} 
+              onChange={e => setPassword(e.target.value)}
+              required 
+            />
+          </div>
+          <button type="submit" className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors shadow-sm">
+            Login
+          </button>
+        </form>
+        <div className="mt-6 text-center text-xs text-gray-400">
+          BPS Kota Cirebon &copy; 2026
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const Dashboard = ({ user, stats }) => (
+  <div className="print:hidden">
+    <h1 className="text-2xl font-bold text-gray-800 mb-6">Dashboard</h1>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <StatCard icon={<Package className="text-blue-500" size={24} />} title="Total Item Persediaan" value={stats.inventory} />
+      <StatCard icon={<ShoppingCart className="text-green-500" size={24} />} title="Total Transaksi" value={stats.usage} />
+      <StatCard icon={<Users className="text-purple-500" size={24} />} title="Pengguna Sistem" value={stats.users} />
+    </div>
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 className="text-lg font-semibold text-gray-800 mb-2">Selamat Datang di TROLI</h2>
+      <p className="text-gray-600">Sistem informasi manajemen persediaan dan logistik Badan Pusat Statistik Kota Cirebon. Anda masuk sebagai <span className="font-semibold capitalize text-blue-600">{user.role}</span>.</p>
+    </div>
+  </div>
+);
+
+const StatCard = ({ icon, title, value }) => (
+  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex items-center gap-4">
+    <div className="p-3 bg-gray-50 rounded-lg">{icon}</div>
+    <div>
+      <p className="text-sm font-medium text-gray-500">{title}</p>
+      <p className="text-2xl font-bold text-gray-800">{value}</p>
+    </div>
+  </div>
+);
+
+// --- INVENTORY VIEW ---
+const InventoryView = ({ inventory, setInventory, notify }) => {
+  const [tab, setTab] = useState('manual');
+  const [form, setForm] = useState({ code: '', name: '', unit: '', stock: '', description: '' });
+
+  const handleManualSubmit = (e) => {
+    e.preventDefault();
+    if (!form.code || !form.name || !form.unit || !form.stock) {
+      notify('Harap isi field yang wajib (*)', 'error');
+      return;
+    }
+    const newItem = { id: Date.now(), ...form, stock: parseInt(form.stock) };
+    setInventory([...inventory, newItem]);
+    setForm({ code: '', name: '', unit: '', stock: '', description: '' });
+    notify('Barang berhasil ditambahkan');
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!window.XLSX) {
+      notify('Library Excel sedang dimuat, coba lagi dalam beberapa detik', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = window.XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = window.XLSX.utils.sheet_to_json(ws);
+        
+        let addedCount = 0;
+        const newItems = data.map(row => {
+          addedCount++;
+          return {
+            id: Date.now() + Math.random(),
+            code: row['Kode Barang'] || row['kode'] || `B-EX-${Math.floor(Math.random()*1000)}`,
+            name: row['Nama Barang'] || row['nama'] || 'Unknown Item',
+            unit: row['Satuan'] || row['satuan'] || 'Pcs',
+            stock: parseInt(row['Stok'] || row['stok'] || row['Jumlah'] || 0),
+            description: row['Keterangan'] || row['keterangan'] || ''
+          };
+        });
+
+        if (newItems.length > 0) {
+          setInventory(prev => [...prev, ...newItems]);
+          notify(`${addedCount} barang berhasil diimpor dari Excel`);
+        } else {
+          notify('Format Excel tidak sesuai atau kosong', 'error');
+        }
+      } catch (err) {
+        notify('Gagal memproses file Excel', 'error');
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = ''; // reset input
+  };
+
+  const deleteItem = (id) => {
+    if(confirm('Hapus barang ini?')) {
+      setInventory(inventory.filter(i => i.id !== id));
+      notify('Barang dihapus');
+    }
+  };
+
+  return (
+    <div className="print:hidden">
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">Input Persediaan</h1>
+      
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
+        <div className="flex border-b border-gray-200">
+          <button className={`flex-1 py-3 text-sm font-medium ${tab === 'manual' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setTab('manual')}>
+            <Plus size={16} className="inline mr-2" /> Input Manual
+          </button>
+          <button className={`flex-1 py-3 text-sm font-medium ${tab === 'excel' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setTab('excel')}>
+            <Upload size={16} className="inline mr-2" /> Upload Excel
+          </button>
+        </div>
+        
+        <div className="p-6">
+          {tab === 'manual' ? (
+            <form onSubmit={handleManualSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Kode Barang *</label><input type="text" className="w-full px-3 py-2 border rounded-md" value={form.code} onChange={e => setForm({...form, code: e.target.value})} /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Barang *</label><input type="text" className="w-full px-3 py-2 border rounded-md" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Satuan *</label><input type="text" className="w-full px-3 py-2 border rounded-md" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Stok Awal *</label><input type="number" className="w-full px-3 py-2 border rounded-md" value={form.stock} onChange={e => setForm({...form, stock: e.target.value})} /></div>
+              <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Keterangan</label><input type="text" className="w-full px-3 py-2 border rounded-md" value={form.description} onChange={e => setForm({...form, description: e.target.value})} /></div>
+              <div className="md:col-span-2 flex justify-end mt-2"><button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Simpan Barang</button></div>
+            </form>
+          ) : (
+            <div className="text-center py-8">
+              <Upload size={48} className="mx-auto text-gray-300 mb-4" />
+              <p className="text-gray-600 mb-4">Upload file .xlsx atau .xls dengan kolom: Kode Barang, Nama Barang, Satuan, Stok, Keterangan</p>
+              <label className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 inline-block">
+                Pilih File Excel
+                <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleFileUpload} />
+              </label>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <h2 className="text-lg font-semibold text-gray-800">Daftar Persediaan</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 text-gray-600 text-sm border-b border-gray-200">
+                <th className="p-4 font-medium">Kode</th>
+                <th className="p-4 font-medium">Nama Barang</th>
+                <th className="p-4 font-medium">Satuan</th>
+                <th className="p-4 font-medium">Stok</th>
+                <th className="p-4 font-medium">Keterangan</th>
+                <th className="p-4 font-medium text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inventory.length === 0 ? (
+                <tr><td colSpan="6" className="p-4 text-center text-gray-500">Belum ada data persediaan.</td></tr>
+              ) : inventory.map(item => (
+                <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="p-4 text-sm font-mono text-gray-600">{item.code}</td>
+                  <td className="p-4 text-sm text-gray-800 font-medium">{item.name}</td>
+                  <td className="p-4 text-sm text-gray-600">{item.unit}</td>
+                  <td className="p-4 text-sm text-gray-800 font-bold">{item.stock}</td>
+                  <td className="p-4 text-sm text-gray-500">{item.description}</td>
+                  <td className="p-4 text-sm text-right">
+                    <button onClick={() => deleteItem(item.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- USAGE VIEW ---
+const UsageView = ({ inventory, setInventory, usageHistory, setUsageHistory, notify }) => {
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [requester, setRequester] = useState('');
+  // Auto-generate Usage Number: Format xxxx/32741/PL.710/2026
+  const currentYear = new Date().getFullYear();
+  const yearStr = currentYear >= 2026 ? currentYear : 2026; // Default 2026 as per prompt
+  const seqNumber = String(usageHistory.length + 1).padStart(4, '0');
+  const autoUsageNumber = `${seqNumber}/32741/PL.710/${yearStr}`;
+  
+  const emptyItem = { code: '', name: '', unit: '', quantity: 1, description: '', suggestions: [] };
+  const [items, setItems] = useState([{ ...emptyItem }]);
+
+  const handleNameChange = (val, index) => {
+    const newItems = [...items];
+    newItems[index].name = val;
+    
+    // Autocomplete logic
+    if (val.length > 1) {
+      const matches = inventory.filter(i => i.name.toLowerCase().includes(val.toLowerCase()));
+      newItems[index].suggestions = matches;
+    } else {
+      newItems[index].suggestions = [];
+    }
+    
+    // If exact match or manually cleared
+    const exactMatch = inventory.find(i => i.name.toLowerCase() === val.toLowerCase());
+    if (exactMatch) {
+      newItems[index].code = exactMatch.code;
+      newItems[index].unit = exactMatch.unit;
+      newItems[index].suggestions = [];
+    }
+    
+    setItems(newItems);
+  };
+
+  const selectSuggestion = (suggestion, index) => {
+    const newItems = [...items];
+    newItems[index].name = suggestion.name;
+    newItems[index].code = suggestion.code;
+    newItems[index].unit = suggestion.unit;
+    newItems[index].suggestions = [];
+    setItems(newItems);
+  };
+
+  const updateItem = (index, field, value) => {
+    const newItems = [...items];
+    newItems[index][field] = value;
+    setItems(newItems);
+  };
+
+  const addItemRow = () => setItems([...items, { ...emptyItem }]);
+  
+  const removeItemRow = (index) => {
+    if (items.length > 1) {
+      const newItems = [...items];
+      newItems.splice(index, 1);
+      setItems(newItems);
+    }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!date || !requester) {
+      notify('Tanggal dan Nama Peminta wajib diisi', 'error');
+      return;
+    }
+
+    // Validate items
+    const validItems = items.filter(i => i.code && i.name && i.unit && i.quantity > 0);
+    if (validItems.length === 0) {
+      notify('Minimal satu barang valid harus diinput', 'error');
+      return;
+    }
+
+    // Check stock
+    for (let item of validItems) {
+      const invItem = inventory.find(i => i.code === item.code);
+      if (!invItem) {
+        notify(`Barang ${item.name} tidak ditemukan di sistem`, 'error');
+        return;
+      }
+      if (invItem.stock < item.quantity) {
+        notify(`Stok ${item.name} tidak mencukupi. Sisa: ${invItem.stock}`, 'error');
+        return;
+      }
+    }
+
+    // Deduct stock
+    const newInventory = inventory.map(inv => {
+      const usedItem = validItems.find(v => v.code === inv.code);
+      if (usedItem) {
+        return { ...inv, stock: inv.stock - parseInt(usedItem.quantity) };
+      }
+      return inv;
+    });
+
+    const newUsage = {
+      id: Date.now(),
+      date,
+      requesterName: requester,
+      usageNumber: autoUsageNumber,
+      items: validItems
+    };
+
+    setInventory(newInventory);
+    setUsageHistory([...usageHistory, newUsage]);
+    setItems([{ ...emptyItem }]);
+    setRequester('');
+    notify('Permintaan pemakaian berhasil disimpan');
+  };
+
+  return (
+    <div className="print:hidden">
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">Pemakaian Persediaan</h1>
+      
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal *</label>
+            <input type="date" required className="w-full px-3 py-2 border rounded-md" value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nama Peminta *</label>
+            <input type="text" required placeholder="Contoh: Budi" className="w-full px-3 py-2 border rounded-md" value={requester} onChange={e => setRequester(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nomor Persediaan (Otomatis)</label>
+            <input type="text" readOnly className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-md text-gray-500 font-mono text-sm" value={autoUsageNumber} />
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-md font-semibold text-gray-800">Daftar Barang</h3>
+            <button type="button" onClick={addItemRow} className="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-md hover:bg-blue-100 flex items-center gap-1">
+              <Plus size={14} /> Tambah Baris
+            </button>
+          </div>
+          
+          <div className="space-y-3">
+            {items.map((item, index) => (
+              <div key={index} className="flex flex-col md:flex-row gap-3 items-start border p-3 rounded-lg bg-gray-50 relative">
+                
+                <div className="w-full md:w-1/3 relative">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Nama Barang *</label>
+                  <input 
+                    type="text" required placeholder="Ketik nama barang..."
+                    className="w-full px-3 py-2 border rounded-md text-sm" 
+                    value={item.name} 
+                    onChange={e => handleNameChange(e.target.value, index)} 
+                  />
+                  {/* Suggestions Dropdown */}
+                  {item.suggestions && item.suggestions.length > 0 && (
+                    <ul className="absolute z-10 w-full bg-white border border-gray-200 shadow-lg rounded-md mt-1 max-h-40 overflow-y-auto">
+                      {item.suggestions.map(s => (
+                        <li key={s.id} onClick={() => selectSuggestion(s, index)} className="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer border-b last:border-0">
+                          {s.name} <span className="text-xs text-gray-400">({s.stock} {s.unit})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="w-full md:w-1/6">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Kode *</label>
+                  <input type="text" required readOnly className="w-full px-3 py-2 border bg-gray-100 rounded-md text-sm text-gray-600" value={item.code} />
+                </div>
+
+                <div className="w-full md:w-1/6">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Satuan *</label>
+                  <input type="text" required readOnly className="w-full px-3 py-2 border bg-gray-100 rounded-md text-sm text-gray-600" value={item.unit} />
+                </div>
+
+                <div className="w-full md:w-1/6">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Jumlah *</label>
+                  <input type="number" required min="1" className="w-full px-3 py-2 border rounded-md text-sm" value={item.quantity} onChange={e => updateItem(index, 'quantity', e.target.value)} />
+                </div>
+
+                <div className="w-full md:flex-1">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Keterangan *</label>
+                  <div className="flex gap-2">
+                    <input type="text" required placeholder="Tujuan..." className="w-full px-3 py-2 border rounded-md text-sm" value={item.description} onChange={e => updateItem(index, 'description', e.target.value)} />
+                    <button type="button" onClick={() => removeItemRow(index)} className="p-2 text-red-500 hover:bg-red-50 rounded-md" disabled={items.length === 1}>
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-4 border-t border-gray-100">
+          <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 font-medium flex items-center gap-2">
+            <CheckCircle size={18} /> Simpan Pemakaian
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+// --- USERS MANAGEMENT VIEW ---
+const UsersView = ({ users, setUsers, notify }) => {
+  const [form, setForm] = useState({ nip: '', name: '', username: '', password: '', role: 'operator' });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (users.find(u => u.username === form.username)) {
+      notify('Username sudah digunakan', 'error');
+      return;
+    }
+    setUsers([...users, { id: Date.now(), ...form }]);
+    setForm({ nip: '', name: '', username: '', password: '', role: 'operator' });
+    notify('Pengguna berhasil ditambahkan');
+  };
+
+  const deleteUser = (id) => {
+    if(confirm('Hapus pengguna ini?')) {
+      setUsers(users.filter(u => u.id !== id));
+      notify('Pengguna dihapus');
+    }
+  };
+
+  return (
+    <div className="print:hidden">
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">Manajemen Akses</h1>
+      
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">Tambah Pengguna Baru</h2>
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div><label className="block text-sm font-medium mb-1">NIP</label><input type="text" required className="w-full border rounded-md px-3 py-2" value={form.nip} onChange={e => setForm({...form, nip: e.target.value})} /></div>
+          <div><label className="block text-sm font-medium mb-1">Nama Lengkap</label><input type="text" required className="w-full border rounded-md px-3 py-2" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></div>
+          <div><label className="block text-sm font-medium mb-1">Username</label><input type="text" required className="w-full border rounded-md px-3 py-2" value={form.username} onChange={e => setForm({...form, username: e.target.value})} /></div>
+          <div><label className="block text-sm font-medium mb-1">Password</label><input type="text" required className="w-full border rounded-md px-3 py-2" value={form.password} onChange={e => setForm({...form, password: e.target.value})} /></div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Level (Role)</label>
+            <select className="w-full border rounded-md px-3 py-2 bg-white" value={form.role} onChange={e => setForm({...form, role: e.target.value})}>
+              <option value="admin">Admin</option>
+              <option value="supervisor">Supervisor</option>
+              <option value="operator">Operator</option>
+            </select>
+          </div>
+          <div className="flex items-end"><button type="submit" className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Tambah Pengguna</button></div>
+        </form>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-gray-50 text-gray-600 text-sm border-b">
+              <th className="p-4 font-medium">NIP</th>
+              <th className="p-4 font-medium">Nama</th>
+              <th className="p-4 font-medium">Username</th>
+              <th className="p-4 font-medium">Level</th>
+              <th className="p-4 font-medium text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map(u => (
+              <tr key={u.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="p-4 text-sm text-gray-600">{u.nip}</td>
+                <td className="p-4 text-sm font-medium text-gray-800">{u.name}</td>
+                <td className="p-4 text-sm text-gray-600">{u.username}</td>
+                <td className="p-4 text-sm">
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${u.role==='admin'?'bg-red-100 text-red-600': u.role==='supervisor'?'bg-purple-100 text-purple-600':'bg-green-100 text-green-600'}`}>{u.role}</span>
+                </td>
+                <td className="p-4 text-sm text-right">
+                  {u.username !== 'admin' && (
+                    <button onClick={() => deleteUser(u.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16} /></button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// --- REPORT VIEW (WITH PRINT/EXPORT LOGIC & BPS HEADER) ---
+const ReportView = ({ usageHistory, notify }) => {
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const reportRef = useRef(null);
+
+  const filteredData = useMemo(() => {
+    return usageHistory.filter(u => u.date.startsWith(selectedMonth));
+  }, [usageHistory, selectedMonth]);
+
+  // Export functions
+  const handlePrint = () => window.print();
+
+  const handleExportPNG = async () => {
+    if (!window.html2canvas) {
+      notify('Library PNG sedang dimuat, coba lagi', 'error'); return;
+    }
+    try {
+      notify('Menghasilkan gambar PNG...');
+      const canvas = await window.html2canvas(reportRef.current, { scale: 2, useCORS: true });
+      const imgData = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.download = `Laporan_TROLI_${selectedMonth}.png`;
+      link.href = imgData;
+      link.click();
+    } catch(err) {
+      notify('Gagal mengekspor ke PNG', 'error');
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!window.html2canvas || !window.jspdf) {
+      notify('Library PDF sedang dimuat, coba lagi', 'error'); return;
+    }
+    try {
+      notify('Menghasilkan PDF...');
+      const canvas = await window.html2canvas(reportRef.current, { scale: 2, useCORS: true });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new window.jspdf.jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`Laporan_TROLI_${selectedMonth}.pdf`);
+    } catch(err) {
+      notify('Gagal mengekspor ke PDF', 'error');
+    }
+  };
+
+  const handleExportWord = () => {
+    const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export HTML to Word Document with JavaScript</title></head><body>";
+    const footer = "</body></html>";
+    const sourceHTML = header + reportRef.current.innerHTML + footer;
+    
+    const source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
+    const fileDownload = document.createElement("a");
+    document.body.appendChild(fileDownload);
+    fileDownload.href = source;
+    fileDownload.download = `Laporan_TROLI_${selectedMonth}.doc`;
+    fileDownload.click();
+    document.body.removeChild(fileDownload);
+    notify('Laporan Word berhasil didownload');
+  };
+
+  // Helper for formal Indonesian month names
+  const getMonthName = (dateStr) => {
+    const d = new Date(dateStr + '-01');
+    return d.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+  };
+
+  return (
+    <div>
+      {/* UI Controls - Hidden on Print */}
+      <div className="print:hidden mb-8">
+        <h1 className="text-2xl font-bold text-gray-800 mb-6">Laporan Pemakaian Persediaan</h1>
+        
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-wrap gap-4 items-end">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Bulan</label>
+            <input type="month" className="border px-3 py-2 rounded-md" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} />
+          </div>
+          
+          <div className="flex-1"></div>
+          
+          <div className="flex gap-2">
+            <button onClick={handlePrint} className="bg-gray-800 text-white px-4 py-2 rounded-md hover:bg-gray-900 flex items-center gap-2 text-sm"><Printer size={16}/> Print</button>
+            <button onClick={handleExportPNG} className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 flex items-center gap-2 text-sm"><ImageIcon size={16}/> PNG</button>
+            <button onClick={handleExportPDF} className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 flex items-center gap-2 text-sm"><FileDown size={16}/> PDF</button>
+            <button onClick={handleExportWord} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center gap-2 text-sm"><FileText size={16}/> Word</button>
+          </div>
+        </div>
+      </div>
+
+      {/* The Printable Area */}
+      <div className="bg-white shadow-sm border border-gray-200 print:shadow-none print:border-none p-8 print:p-0 mx-auto" style={{ maxWidth: '210mm', minHeight: '297mm' }}>
+        <div ref={reportRef} className="bg-white" style={{ fontFamily: 'Arial, sans-serif', color: 'black' }}>
+          
+          {/* --- KOP SURAT BPS CIREBON (As requested in image) --- */}
+          <div style={{ display: 'flex', alignItems: 'center', borderBottom: '3px solid black', paddingBottom: '10px', marginBottom: '20px' }}>
+            {/* Logo placeholder - Recreating the BPS Logo essence using pure CSS/HTML to avoid external image dependencies breaking on Word export */}
+            <div style={{ width: '100px', height: '80px', position: 'relative', marginRight: '20px', flexShrink: 0 }}>
+                {/* Simplified CSS Logo resembling BPS */}
+                <div style={{ position: 'absolute', left: '10px', top: '10px', width: '30px', height: '40px', backgroundColor: '#0085CA', transform: 'skew(-15deg)' }}></div>
+                <div style={{ position: 'absolute', left: '45px', top: '10px', width: '30px', height: '40px', backgroundColor: '#F28F00', transform: 'skew(-15deg)' }}></div>
+                <div style={{ position: 'absolute', left: '25px', top: '35px', width: '30px', height: '40px', backgroundColor: '#62B539', transform: 'skew(-15deg)' }}></div>
+                <div style={{ position: 'absolute', left: '0', top: '0', width: '100px', height: '80px', borderRadius: '50%', border: '2px solid #555', borderTopColor: 'transparent', borderRightColor: 'transparent', transform: 'rotate(-45deg)' }}></div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <h1 style={{ margin: 0, fontSize: '24px', fontStyle: 'italic', fontWeight: 'bold', lineHeight: '1.2' }}>BADAN PUSAT STATISTIK</h1>
+              <h1 style={{ margin: 0, fontSize: '24px', fontStyle: 'italic', fontWeight: 'bold', lineHeight: '1.2' }}>KOTA CIREBON</h1>
+              <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>Jl. Sekarkemuning I, Evakuasi, Kota Cirebon</p>
+              <p style={{ margin: '0', fontSize: '14px' }}>Homepage : <a href="http://www.cirebonkota.bps.go.id" style={{ color: 'blue', textDecoration: 'underline' }}>www.cirebonkota.bps.go.id</a>, Email : bps3274@bps.go.id</p>
+            </div>
+          </div>
+          
+          {/* --- CONTENT --- */}
+          <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+            <h2 style={{ fontSize: '16px', fontWeight: 'bold', margin: '0 0 5px 0', textDecoration: 'underline' }}>LAPORAN PEMAKAIAN BARANG PERSEDIAAN</h2>
+            <p style={{ fontSize: '14px', margin: 0 }}>Bulan: {getMonthName(selectedMonth)}</p>
+          </div>
+
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '40px', fontSize: '12px' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f2f2f2' }}>
+                <th style={{ border: '1px solid black', padding: '8px', textAlign: 'center' }}>No</th>
+                <th style={{ border: '1px solid black', padding: '8px', textAlign: 'center' }}>Tanggal</th>
+                <th style={{ border: '1px solid black', padding: '8px', textAlign: 'center' }}>No. Persediaan</th>
+                <th style={{ border: '1px solid black', padding: '8px', textAlign: 'center' }}>Nama Peminta</th>
+                <th style={{ border: '1px solid black', padding: '8px', textAlign: 'center' }}>Kode Barang</th>
+                <th style={{ border: '1px solid black', padding: '8px', textAlign: 'center' }}>Nama Barang</th>
+                <th style={{ border: '1px solid black', padding: '8px', textAlign: 'center' }}>Jml</th>
+                <th style={{ border: '1px solid black', padding: '8px', textAlign: 'center' }}>Satuan</th>
+                <th style={{ border: '1px solid black', padding: '8px', textAlign: 'center' }}>Keterangan</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredData.length === 0 ? (
+                <tr><td colSpan="9" style={{ border: '1px solid black', padding: '15px', textAlign: 'center' }}>Nihil (Tidak ada transaksi pemakaian pada bulan ini)</td></tr>
+              ) : (
+                filteredData.flatMap((usage, uIndex) => 
+                  usage.items.map((item, iIndex) => (
+                    <tr key={`${usage.id}-${iIndex}`}>
+                      {iIndex === 0 && (
+                        <>
+                          <td rowSpan={usage.items.length} style={{ border: '1px solid black', padding: '8px', textAlign: 'center', verticalAlign: 'top' }}>{uIndex + 1}</td>
+                          <td rowSpan={usage.items.length} style={{ border: '1px solid black', padding: '8px', verticalAlign: 'top' }}>{usage.date}</td>
+                          <td rowSpan={usage.items.length} style={{ border: '1px solid black', padding: '8px', verticalAlign: 'top' }}>{usage.usageNumber}</td>
+                          <td rowSpan={usage.items.length} style={{ border: '1px solid black', padding: '8px', verticalAlign: 'top' }}>{usage.requesterName}</td>
+                        </>
+                      )}
+                      <td style={{ border: '1px solid black', padding: '8px' }}>{item.code}</td>
+                      <td style={{ border: '1px solid black', padding: '8px' }}>{item.name}</td>
+                      <td style={{ border: '1px solid black', padding: '8px', textAlign: 'center' }}>{item.quantity}</td>
+                      <td style={{ border: '1px solid black', padding: '8px', textAlign: 'center' }}>{item.unit}</td>
+                      <td style={{ border: '1px solid black', padding: '8px' }}>{item.description}</td>
+                    </tr>
+                  ))
+                )
+              )}
+            </tbody>
+          </table>
+
+          {/* --- SIGNATURES --- */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '50px', fontSize: '14px', pageBreakInside: 'avoid' }}>
+            <div style={{ textAlign: 'center', width: '30%' }}>
+              <p style={{ margin: '0 0 60px 0' }}>Yang Menerima,</p>
+              <p style={{ margin: 0, fontWeight: 'bold' }}>..........................................</p>
+              <p style={{ margin: 0 }}>NIP. </p>
+            </div>
+            
+            <div style={{ textAlign: 'center', width: '30%' }}>
+              <p style={{ margin: '0 0 60px 0' }}>Operator Persediaan,</p>
+              <p style={{ margin: 0, fontWeight: 'bold', textDecoration: 'underline' }}>Muhammad Maftuhin</p>
+              <p style={{ margin: 0 }}>NIP. 198612122012111001</p>
+            </div>
+
+            <div style={{ textAlign: 'center', width: '30%' }}>
+              <p style={{ margin: '0 0 60px 0' }}>Kasubbag Umum,</p>
+              <p style={{ margin: 0, fontWeight: 'bold', textDecoration: 'underline' }}>Muhammad Jaka</p>
+              <p style={{ margin: 0 }}>NIP. 198809062010121006</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+};
