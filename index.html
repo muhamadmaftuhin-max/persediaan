@@ -1,0 +1,725 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { 
+  Home, Package, ShoppingCart, Users, FileText, LogOut, 
+  Plus, Upload, Trash2, Printer, Download, Search, Check, FileDown, Image as ImageIcon
+} from 'lucide-react';
+
+// --- MOCK DATA ---
+const INITIAL_USERS = [
+  { id: 1, nip: '198001012005011001', name: 'Administrator', username: 'admin', password: '123', role: 'admin' }, // Changed to 123 for demo, but will accept admin/admin based on request
+  { id: 2, nip: '198612122012111001', name: 'Muhammad Maftuhin', username: 'operator1', password: '123', role: 'operator' },
+  { id: 3, nip: '198809062010121006', name: 'Muhammad Jaka', username: 'super1', password: '123', role: 'supervisor' }
+];
+
+const INITIAL_INVENTORY = [
+  { code: 'ATK-001', name: 'Kertas HVS A4 70gsm', unit: 'Rim', stock: 50 },
+  { code: 'ATK-002', name: 'Kertas HVS F4 70gsm', unit: 'Rim', stock: 30 },
+  { code: 'ATK-003', name: 'Pulpen Standard Hitam', unit: 'Kotak', stock: 20 },
+  { code: 'ATK-004', name: 'Tinta Printer Epson Hitam', unit: 'Botol', stock: 15 },
+  { code: 'ATK-005', name: 'Staples Kecil', unit: 'Pcs', stock: 40 },
+  { code: 'LOG-001', name: 'Air Mineral Galon', unit: 'Galon', stock: 10 },
+];
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  
+  // Data States
+  const [users, setUsers] = useState(INITIAL_USERS);
+  const [inventory, setInventory] = useState(INITIAL_INVENTORY);
+  const [transactions, setTransactions] = useState([]);
+  
+  // App State
+  const [activeTab, setActiveTab] = useState('dashboard');
+
+  // --- LOGIN HANDLER ---
+  const handleLogin = (username, password) => {
+    // Hardcoded override for requested default login
+    if (username === 'admin' && password === 'admin') {
+      setUser({ id: 0, nip: '000', name: 'Super Admin', username: 'admin', role: 'admin' });
+      return true;
+    }
+    
+    const foundUser = users.find(u => u.username === username && u.password === password);
+    if (foundUser) {
+      setUser(foundUser);
+      return true;
+    }
+    return false;
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setActiveTab('dashboard');
+  };
+
+  if (!user) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+
+  // --- ROLE CHECKERS ---
+  const canViewMenu = (menu) => {
+    if (user.role === 'admin') return true;
+    if (user.role === 'operator') return ['dashboard', 'pemakaian'].includes(menu);
+    if (user.role === 'supervisor') return ['dashboard', 'persediaan', 'laporan'].includes(menu);
+    return false;
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-100 font-sans">
+      {/* SIDEBAR - HIDDEN ON PRINT */}
+      <aside className="w-64 bg-slate-800 text-white flex flex-col print:hidden">
+        <div className="p-4 flex items-center gap-3 border-b border-slate-700">
+          <ShoppingCart className="w-8 h-8 text-blue-400" />
+          <div>
+            <h1 className="text-xl font-bold tracking-wider">TROLI</h1>
+            <p className="text-xs text-slate-400">BPS Kota Cirebon</p>
+          </div>
+        </div>
+        
+        <div className="p-4">
+          <p className="text-sm font-semibold">{user.name}</p>
+          <p className="text-xs text-slate-400 capitalize bg-slate-700 inline-block px-2 py-1 rounded mt-1">{user.role}</p>
+        </div>
+
+        <nav className="flex-1 px-2 space-y-1 overflow-y-auto">
+          {canViewMenu('dashboard') && (
+            <NavItem active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<Home />} label="Dashboard" />
+          )}
+          {canViewMenu('persediaan') && (
+            <NavItem active={activeTab === 'persediaan'} onClick={() => setActiveTab('persediaan')} icon={<Package />} label="Input Persediaan" />
+          )}
+          {canViewMenu('pemakaian') && (
+            <NavItem active={activeTab === 'pemakaian'} onClick={() => setActiveTab('pemakaian')} icon={<ShoppingCart />} label="Pemakaian" />
+          )}
+          {canViewMenu('laporan') && (
+            <NavItem active={activeTab === 'laporan'} onClick={() => setActiveTab('laporan')} icon={<FileText />} label="Laporan" />
+          )}
+          {canViewMenu('users') && (
+            <NavItem active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={<Users />} label="Manajemen Akses" />
+          )}
+        </nav>
+
+        <div className="p-4 border-t border-slate-700">
+          <button onClick={handleLogout} className="flex items-center gap-3 w-full px-3 py-2 text-red-400 hover:bg-slate-700 rounded transition">
+            <LogOut size={20} />
+            <span>Logout</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* MAIN CONTENT */}
+      <main className="flex-1 overflow-auto">
+        {activeTab === 'dashboard' && <Dashboard inventory={inventory} transactions={transactions} />}
+        {activeTab === 'persediaan' && <InventoryView inventory={inventory} setInventory={setInventory} />}
+        {activeTab === 'pemakaian' && <UsageView inventory={inventory} setTransactions={setTransactions} transactions={transactions} />}
+        {activeTab === 'laporan' && <ReportView transactions={transactions} />}
+        {activeTab === 'users' && <UsersView users={users} setUsers={setUsers} />}
+      </main>
+    </div>
+  );
+}
+
+// ================= COMPONENTS =================
+
+function NavItem({ active, onClick, icon, label }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-3 w-full px-3 py-2 rounded transition text-left ${
+        active ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+      }`}
+    >
+      {React.cloneElement(icon, { size: 20 })}
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!onLogin(username, password)) {
+      setError('Username atau password salah!');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full text-blue-600 mb-4">
+            <ShoppingCart size={32} />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-800">TROLI</h1>
+          <p className="text-slate-500">Tracking Resource dan Logistik Inventori</p>
+          <p className="text-sm font-medium text-slate-600 mt-1">BPS Kota Cirebon</p>
+        </div>
+
+        {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm mb-4">{error}</div>}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
+            <input
+              type="text"
+              required
+              className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="admin"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+            <input
+              type="password"
+              required
+              className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="admin"
+            />
+          </div>
+          <button
+            type="submit"
+            className="w-full bg-blue-600 text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition"
+          >
+            Masuk
+          </button>
+        </form>
+        
+        <div className="mt-6 text-xs text-center text-slate-400">
+          Gunakan username: <b>admin</b> password: <b>admin</b> untuk mencoba
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ inventory, transactions }) {
+  const lowStock = inventory.filter(i => i.stock < 20).length;
+  
+  return (
+    <div className="p-8">
+      <h2 className="text-2xl font-bold mb-6">Dashboard</h2>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
+          <div className="p-3 bg-blue-100 text-blue-600 rounded-lg"><Package size={24} /></div>
+          <div>
+            <p className="text-slate-500 text-sm">Total Item Persediaan</p>
+            <p className="text-2xl font-bold">{inventory.length}</p>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
+          <div className="p-3 bg-red-100 text-red-600 rounded-lg"><ShoppingCart size={24} /></div>
+          <div>
+            <p className="text-slate-500 text-sm">Transaksi Pemakaian</p>
+            <p className="text-2xl font-bold">{transactions.length}</p>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
+          <div className="p-3 bg-yellow-100 text-yellow-600 rounded-lg"><FileText size={24} /></div>
+          <div>
+            <p className="text-slate-500 text-sm">Peringatan Stok Tipis</p>
+            <p className="text-2xl font-bold">{lowStock}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- MENU INPUT PERSEDIAAN ---
+function InventoryView({ inventory, setInventory }) {
+  const [showModal, setShowModal] = useState(false);
+  const [newItem, setNewItem] = useState({ code: '', name: '', unit: '', stock: '' });
+
+  const handleAdd = (e) => {
+    e.preventDefault();
+    setInventory([...inventory, { ...newItem, stock: parseInt(newItem.stock) }]);
+    setShowModal(false);
+    setNewItem({ code: '', name: '', unit: '', stock: '' });
+  };
+
+  return (
+    <div className="p-8 print:p-0">
+      <div className="flex justify-between items-center mb-6 print:hidden">
+        <h2 className="text-2xl font-bold">Data Persediaan</h2>
+        <div className="flex gap-2">
+          <button onClick={() => alert('Simulasi: Fitur Upload Excel Berhasil Dijalankan.')} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center gap-2">
+            <Upload size={18} /> Upload Excel
+          </button>
+          <button onClick={() => setShowModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center gap-2">
+            <Plus size={18} /> Tambah Manual
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200 text-slate-600">
+              <th className="p-4">Kode Barang</th>
+              <th className="p-4">Nama Barang</th>
+              <th className="p-4">Satuan</th>
+              <th className="p-4">Stok Saat Ini</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {inventory.map((item, idx) => (
+              <tr key={idx} className="hover:bg-slate-50">
+                <td className="p-4 font-mono text-sm">{item.code}</td>
+                <td className="p-4">{item.name}</td>
+                <td className="p-4">{item.unit}</td>
+                <td className="p-4 font-semibold">{item.stock}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold mb-4">Tambah Persediaan</h3>
+            <form onSubmit={handleAdd} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Kode Barang</label>
+                <input required type="text" className="w-full border rounded p-2" value={newItem.code} onChange={e => setNewItem({...newItem, code: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Nama Barang</label>
+                <input required type="text" className="w-full border rounded p-2" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Satuan</label>
+                  <input required type="text" className="w-full border rounded p-2" value={newItem.unit} onChange={e => setNewItem({...newItem, unit: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Stok Awal</label>
+                  <input required type="number" className="w-full border rounded p-2" value={newItem.stock} onChange={e => setNewItem({...newItem, stock: e.target.value})} />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-6">
+                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded text-slate-600">Batal</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Simpan</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- MENU PEMAKAIAN PERSEDIAAN ---
+function UsageView({ inventory, transactions, setTransactions }) {
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [name, setName] = useState('');
+  
+  // Format nomor otomatis berdasarkan count transaksi: 0001/32741/PL.710/2026
+  const nextNo = String(transactions.length + 1).padStart(4, '0');
+  const refNo = `${nextNo}/32741/PL.710/2026`;
+
+  const [items, setItems] = useState([{ code: '', name: '', unit: '', qty: '', remarks: '' }]);
+
+  const handleItemChange = (index, field, value) => {
+    const newItems = [...items];
+    newItems[index][field] = value;
+    setItems(newItems);
+  };
+
+  const handleSelectSuggestion = (index, invItem) => {
+    const newItems = [...items];
+    newItems[index].name = invItem.name;
+    newItems[index].code = invItem.code;
+    newItems[index].unit = invItem.unit;
+    setItems(newItems);
+  };
+
+  const addItemRow = () => {
+    setItems([...items, { code: '', name: '', unit: '', qty: '', remarks: '' }]);
+  };
+
+  const removeItemRow = (index) => {
+    const newItems = items.filter((_, i) => i !== index);
+    setItems(newItems);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if(items.some(i => !i.code || !i.qty)) {
+      alert("Pastikan semua barang dan jumlah telah diisi dengan benar.");
+      return;
+    }
+    const newTransaction = {
+      id: Date.now(),
+      date,
+      name,
+      refNo,
+      items: [...items]
+    };
+    setTransactions([newTransaction, ...transactions]);
+    alert('Permintaan pemakaian berhasil disimpan!');
+    // Reset form
+    setName('');
+    setItems([{ code: '', name: '', unit: '', qty: '', remarks: '' }]);
+  };
+
+  return (
+    <div className="p-8">
+      <h2 className="text-2xl font-bold mb-6">Entry Pemakaian Persediaan</h2>
+      
+      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div>
+            <label className="block text-sm font-medium mb-1">Tanggal</label>
+            <input required type="date" className="w-full border rounded p-2" value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Nama Peminta</label>
+            <input required type="text" className="w-full border rounded p-2" value={name} onChange={e => setName(e.target.value)} placeholder="Nama Bidang / Pegawai" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Nomor Persediaan (Auto)</label>
+            <input readOnly type="text" className="w-full border rounded p-2 bg-slate-50 text-slate-500 font-mono" value={refNo} />
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-sm font-bold mb-2">Daftar Barang</label>
+          <div className="space-y-3">
+            {items.map((item, index) => (
+              <div key={index} className="flex gap-3 items-start relative border p-3 rounded bg-slate-50">
+                <div className="flex-1 relative">
+                   <Autocomplete 
+                      inventory={inventory} 
+                      value={item.name} 
+                      onChange={(val) => handleItemChange(index, 'name', val)}
+                      onSelect={(invItem) => handleSelectSuggestion(index, invItem)}
+                   />
+                </div>
+                <div className="w-32">
+                  <input readOnly type="text" placeholder="Kode *" className="w-full border rounded p-2 bg-gray-200 text-sm" value={item.code} />
+                </div>
+                <div className="w-24">
+                  <input readOnly type="text" placeholder="Satuan *" className="w-full border rounded p-2 bg-gray-200 text-sm" value={item.unit} />
+                </div>
+                <div className="w-24">
+                  <input required type="number" min="1" placeholder="Jml *" className="w-full border rounded p-2" value={item.qty} onChange={e => handleItemChange(index, 'qty', e.target.value)} />
+                </div>
+                <div className="flex-1">
+                  <input type="text" placeholder="Keterangan *" className="w-full border rounded p-2" value={item.remarks} onChange={e => handleItemChange(index, 'remarks', e.target.value)} />
+                </div>
+                {items.length > 1 && (
+                  <button type="button" onClick={() => removeItemRow(index)} className="p-2 text-red-500 hover:bg-red-100 rounded">
+                    <Trash2 size={18} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={addItemRow} className="mt-3 text-sm text-blue-600 flex items-center gap-1 font-medium hover:underline">
+            <Plus size={16} /> Tambah Barang Lain
+          </button>
+        </div>
+
+        <div className="border-t pt-4 mt-6">
+          <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded font-medium hover:bg-blue-700">Simpan Pemakaian</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// Komponen Autocomplete khusus untuk Nama Barang
+function Autocomplete({ inventory, value, onChange, onSelect }) {
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  const filtered = inventory.filter(i => i.name.toLowerCase().includes(value.toLowerCase()));
+
+  return (
+    <div className="relative">
+      <input 
+        required
+        type="text" 
+        placeholder="Ketik Nama Barang *" 
+        className="w-full border rounded p-2" 
+        value={value} 
+        onChange={(e) => {
+          onChange(e.target.value);
+          setShowDropdown(true);
+        }}
+        onFocus={() => setShowDropdown(true)}
+        onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+      />
+      {showDropdown && filtered.length > 0 && (
+        <ul className="absolute z-10 w-full bg-white border rounded shadow-lg max-h-48 overflow-y-auto mt-1">
+          {filtered.map((item, idx) => (
+            <li 
+              key={idx} 
+              className="p-2 hover:bg-blue-50 cursor-pointer text-sm"
+              onMouseDown={() => onSelect(item)}
+            >
+              <div className="font-medium">{item.name}</div>
+              <div className="text-xs text-slate-500">Stok: {item.stock} {item.unit} | {item.code}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// --- MENU MANAJEMEN AKSES ---
+function UsersView({ users, setUsers }) {
+  const [showModal, setShowModal] = useState(false);
+  const [newUser, setNewUser] = useState({ nip: '', name: '', username: '', password: '', role: 'operator' });
+
+  const handleAdd = (e) => {
+    e.preventDefault();
+    setUsers([...users, { ...newUser, id: Date.now() }]);
+    setShowModal(false);
+    setNewUser({ nip: '', name: '', username: '', password: '', role: 'operator' });
+  };
+
+  return (
+    <div className="p-8">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold">Manajemen Akses</h2>
+        <button onClick={() => setShowModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center gap-2">
+          <Plus size={18} /> Tambah User
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200 text-slate-600">
+              <th className="p-4">NIP</th>
+              <th className="p-4">NAMA</th>
+              <th className="p-4">Username</th>
+              <th className="p-4">Level Akses</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {users.map(u => (
+              <tr key={u.id} className="hover:bg-slate-50">
+                <td className="p-4 font-mono">{u.nip}</td>
+                <td className="p-4 font-medium">{u.name}</td>
+                <td className="p-4">{u.username}</td>
+                <td className="p-4 capitalize">
+                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                    u.role === 'admin' ? 'bg-red-100 text-red-700' : 
+                    u.role === 'supervisor' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                  }`}>
+                    {u.role}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold mb-4">Tambah Pengguna</h3>
+            <form onSubmit={handleAdd} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">NIP</label>
+                <input required type="text" className="w-full border rounded p-2" value={newUser.nip} onChange={e => setNewUser({...newUser, nip: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Nama Lengkap</label>
+                <input required type="text" className="w-full border rounded p-2" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Username</label>
+                  <input required type="text" className="w-full border rounded p-2" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Password</label>
+                  <input required type="text" className="w-full border rounded p-2" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Level Authenticator</label>
+                <select className="w-full border rounded p-2" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
+                  <option value="operator">Operator (Entry Pemakaian)</option>
+                  <option value="supervisor">Supervisor (Stock & Laporan)</option>
+                  <option value="admin">Admin (All Access)</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 mt-6">
+                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded text-slate-600">Batal</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Simpan</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- MENU LAPORAN (REPORT EXPORT) ---
+function ReportView({ transactions }) {
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const reportRef = useRef(null);
+
+  const filteredData = useMemo(() => {
+    return transactions.filter(t => t.date.startsWith(selectedMonth));
+  }, [transactions, selectedMonth]);
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleExportWord = () => {
+    if (!reportRef.current) return;
+    const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export HTML To Doc</title></head><body>";
+    const footer = "</body></html>";
+    const sourceHTML = header + reportRef.current.innerHTML + footer;
+    
+    const source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
+    const fileDownload = document.createElement("a");
+    document.body.appendChild(fileDownload);
+    fileDownload.href = source;
+    fileDownload.download = `Laporan_Persediaan_${selectedMonth}.doc`;
+    fileDownload.click();
+    document.body.removeChild(fileDownload);
+  };
+
+  // Mock PNG Export
+  const handleExportPNG = () => {
+    alert("Simulasi: Ekspor PNG berhasil disiapkan. (Membutuhkan lib html2canvas di env produksi)");
+  };
+
+  return (
+    <div className="p-8 print:p-0 bg-gray-100 min-h-screen">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 print:hidden gap-4">
+        <div>
+          <h2 className="text-2xl font-bold">Laporan Persediaan</h2>
+          <p className="text-slate-500 text-sm">Pilih bulan untuk melihat dan mengekspor laporan.</p>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <input 
+            type="month" 
+            className="border rounded px-3 py-2 bg-white" 
+            value={selectedMonth} 
+            onChange={e => setSelectedMonth(e.target.value)}
+          />
+          <button onClick={handlePrint} className="bg-slate-800 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-slate-700">
+            <Printer size={18} /> Print / PDF
+          </button>
+          <button onClick={handleExportWord} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-blue-700">
+            <FileDown size={18} /> Word
+          </button>
+          <button onClick={handleExportPNG} className="bg-green-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-green-700">
+            <ImageIcon size={18} /> PNG
+          </button>
+        </div>
+      </div>
+
+      {/* KERTAS LAPORAN */}
+      <div className="bg-white shadow-lg mx-auto p-10 print:shadow-none print:p-0 max-w-4xl" ref={reportRef}>
+        
+        {/* KOP SURAT */}
+        <div className="flex items-center border-b-[3px] border-black pb-4 mb-6">
+          <div className="mr-6">
+            {/* Simulasi Logo BPS - Menggunakan SVG murni yang mirip logo statistik */}
+            <svg width="100" height="70" viewBox="0 0 100 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M10 40 L30 40 L30 10 L50 10 L50 60 L70 60 L70 30 L90 30" stroke="#0072B5" strokeWidth="8" fill="none" strokeLinejoin="miter"/>
+              <circle cx="50" cy="35" r="30" stroke="#F18A00" strokeWidth="4" fill="none"/>
+            </svg>
+          </div>
+          <div className="flex-1 text-left">
+            <h1 className="text-2xl font-bold italic font-serif leading-tight">BADAN PUSAT STATISTIK</h1>
+            <h1 className="text-2xl font-bold italic font-serif leading-tight">KOTA CIREBON</h1>
+            <p className="text-sm font-sans mt-1">Jl. Sekarkemuning I, Evakuasi, Kota Cirebon</p>
+            <p className="text-sm font-sans">Homepage : <span className="text-blue-600 underline">www.cirebonkota.bps.go.id</span>, Email : bps3274@bps.go.id</p>
+          </div>
+        </div>
+        <div className="border-t-[1px] border-black mt-[-20px] mb-8"></div>
+
+        {/* JUDUL LAPORAN */}
+        <div className="text-center mb-6">
+          <h2 className="text-lg font-bold underline">LAPORAN PEMAKAIAN PERSEDIAAN</h2>
+          <p className="text-sm">Bulan: {new Date(selectedMonth + '-01').toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}</p>
+        </div>
+
+        {/* TABEL DATA */}
+        <table className="w-full border-collapse border border-black mb-8 text-sm">
+          <thead>
+            <tr className="bg-gray-100">
+              <th className="border border-black p-2">No</th>
+              <th className="border border-black p-2">Tanggal</th>
+              <th className="border border-black p-2">Nomor Persediaan</th>
+              <th className="border border-black p-2">Peminta</th>
+              <th className="border border-black p-2">Rincian Barang</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredData.length === 0 ? (
+              <tr><td colSpan="5" className="border border-black p-4 text-center italic">Tidak ada transaksi pada bulan ini.</td></tr>
+            ) : (
+              filteredData.map((trx, idx) => (
+                <tr key={trx.id}>
+                  <td className="border border-black p-2 text-center align-top">{idx + 1}</td>
+                  <td className="border border-black p-2 align-top">{trx.date}</td>
+                  <td className="border border-black p-2 align-top">{trx.refNo}</td>
+                  <td className="border border-black p-2 align-top">{trx.name}</td>
+                  <td className="border border-black p-0 align-top">
+                    <table className="w-full text-xs">
+                      <tbody>
+                        {trx.items.map((item, i) => (
+                          <tr key={i} className={i !== trx.items.length - 1 ? "border-b border-gray-300" : ""}>
+                            <td className="p-1 w-1/2">{item.name}</td>
+                            <td className="p-1 w-1/4 text-center">{item.qty} {item.unit}</td>
+                            <td className="p-1 w-1/4 text-gray-600">{item.remarks}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+
+        {/* BLOK TANDA TANGAN */}
+        <div className="flex justify-between text-sm mt-12 mb-8 page-break-inside-avoid">
+          <div className="text-center">
+            <p className="mb-16">Yang Menerima,</p>
+            <p className="font-bold underline">.......................................</p>
+            <p>NIP. </p>
+          </div>
+          
+          <div className="text-center">
+            <p className="mb-16">Mengetahui,<br/>Kasubbag Umum,</p>
+            <p className="font-bold underline">Muhammad Jaka</p>
+            <p>NIP. 198809062010121006</p>
+          </div>
+
+          <div className="text-center">
+            <p className="mb-1">Cirebon, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+            <p className="mb-16">Operator Persediaan,</p>
+            <p className="font-bold underline">Muhammad Maftuhin</p>
+            <p>NIP. 198612122012111001</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
